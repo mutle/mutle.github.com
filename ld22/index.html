@@ -2,6 +2,15 @@
 <html>
   <head>
       <link href='http://fonts.googleapis.com/css?family=VT323' rel='stylesheet' type='text/css'>
+      <style>
+        #game:-webkit-full-screen {
+          height: 100%;
+          width: 100%;
+        }
+        #fullscreen {
+          display: none;
+        }
+      </style
   </head>
   <body>
     <script type="text/javascript" src="underscore-min.js"></script>
@@ -12,7 +21,8 @@
       </canvas>
       <div id="controls">
         <button id="pause">Pause</button>
-        <button id="resolution">Original Size</button>
+        <button id="resolution">Double Size</button>
+        <button id="fullscreen">Fullscreen</button>
       </div>
     </div>
   </body>

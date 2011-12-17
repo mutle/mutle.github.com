@@ -4,7 +4,7 @@
   window.engine = null;
 
   $(document).ready(function() {
-    var Character, Engine, Rect, Renderable, Sprite, Text, Vector, character, fps, update, updateRate;
+    var Character, Engine, Layer, Rect, Renderable, Scene, Sprite, Text, TilesLayer, Vector, mainScene, update, updateRate;
     Engine = (function() {
 
       function Engine() {
@@ -16,11 +16,11 @@
         this.ctx.fillStyle = this.clearColor;
         this.ctx.fillRect(0, 0, this.w, this.h);
         this.running = true;
-        this.objects = [];
         this.lastMillis = this.milliseconds();
         this.resolution = 1;
         this.keyEvents = {};
         this.delta = 0;
+        this.scene = null;
         window.document.addEventListener('keydown', function(event) {
           var char;
           char = String.fromCharCode(event.keyCode);
@@ -35,6 +35,17 @@
         });
       }
 
+      Engine.prototype.reset = function() {
+        this.clearColor = '#000';
+        this.ctx.fillStyle = this.clearColor;
+        this.ctx.fillRect(0, 0, this.w, this.h);
+        this.running = true;
+        this.lastMillis = this.milliseconds();
+        this.keyEvents = {};
+        this.delta = 0;
+        return this.scene = null;
+      };
+
       Engine.prototype.registerKeyEvent = function(key, callback) {
         return this.keyEvents[key] = {
           callback: callback,
@@ -46,12 +57,20 @@
       Engine.prototype.updateEvent = function(key, state) {
         var event;
         event = this.keyEvents[key];
+        if (event) event.state = state;
+        event = this.keyEvents[''];
         if (event) return event.state = state;
       };
 
       Engine.prototype.handleEvent = function(event) {
         if (event.callback) event.callback(event.state === 'down');
         if (event.state === 'up') return event.state = 'idle';
+      };
+
+      Engine.prototype.keyDown = function(key) {
+        var event;
+        event = this.keyEvents[key];
+        return event && event.state === 'down';
       };
 
       Engine.prototype.scale = function(factor) {
@@ -62,12 +81,13 @@
         return this.ctx.scale(factor, factor);
       };
 
-      Engine.prototype.add = function(object) {
-        return this.objects.push(object);
+      Engine.prototype.setScene = function(scene) {
+        if (this.scene) this.reset();
+        return this.scene = scene;
       };
 
       Engine.prototype.update = function() {
-        var event, key, o, sortedObjects, _i, _j, _len, _len2, _ref;
+        var event, key, _ref;
         if (!this.running) return;
         _ref = this.keyEvents;
         for (key in _ref) {
@@ -77,19 +97,12 @@
         }
         this.currentMillis = this.milliseconds();
         this.delta = (this.currentMillis - this.lastMillis) / 1000;
-        sortedObjects = _.sortBy(this.objects, function(o) {
-          return o.position.z;
-        });
-        for (_i = 0, _len = sortedObjects.length; _i < _len; _i++) {
-          o = sortedObjects[_i];
-          o.update(this.delta);
-        }
         this.ctx.fillStyle = this.clearColor;
+        this.ctx.save();
+        if (this.scene) this.scene.update(this.delta);
         this.ctx.fillRect(0, 0, this.w, this.h);
-        for (_j = 0, _len2 = sortedObjects.length; _j < _len2; _j++) {
-          o = sortedObjects[_j];
-          o.draw(this);
-        }
+        if (this.scene) this.scene.draw(this);
+        this.ctx.restore();
         this.lastMillis = this.currentMillis;
         return this.delta;
       };
@@ -99,20 +112,27 @@
         return this.lastMillis = this.milliseconds();
       };
 
-      Engine.prototype.translate = function(offset, rotate, flipH, flipV, callback) {
+      Engine.prototype.fullscreen = function() {
+        if (document.webkitIsFullScreen) {
+          return $('#game').get(0).webkitCancelFullScreen();
+        } else {
+          return $('#game').get(0).webkitRequestFullScreen();
+        }
+      };
+
+      Engine.prototype.translate = function(offset, rotate, flipH, flipV, caller, callback) {
         var angle;
         angle = rotate * Math.PI / 180;
+        this.ctx.save();
         this.ctx.translate(offset.x, offset.y);
         this.ctx.rotate(angle);
         if (flipH) this.ctx.scale(-1, 1);
-        callback.apply(this);
-        if (flipH) this.ctx.scale(-1, 1);
-        this.ctx.rotate(-angle);
-        return this.ctx.translate(-offset.x, -offset.y);
+        callback.apply(caller);
+        return this.ctx.restore();
       };
 
       Engine.prototype.drawImage = function(image, src, dst, rotate, center, flipH, flipV) {
-        return this.translate(dst.pos, rotate, flipH, flipV, function() {
+        return this.translate(dst.pos, rotate, flipH, flipV, this, function() {
           return this.ctx.drawImage(image, src.pos.x, src.pos.y, src.size.x, src.size.y, -center.x, -center.y, dst.size.x, dst.size.y);
         });
       };
@@ -130,7 +150,7 @@
         this.ctx.font = font;
         this.ctx.textAlign = align;
         this.ctx.textBaseline = 'middle';
-        return this.translate(position, rotate, false, false, function() {
+        return this.translate(position, rotate, false, false, this, function() {
           return this.ctx.fillText(text, -center.x, -center.y);
         });
       };
@@ -163,6 +183,22 @@
         if (!this.z) this.z = 0;
       }
 
+      Vector.prototype.add = function(v) {
+        return new Vector(this.x + v.x, this.y + v.y, this.z + v.z);
+      };
+
+      Vector.prototype.sub = function(v) {
+        return new Vector(this.x - v.x, this.y - v.y, this.z - v.z);
+      };
+
+      Vector.prototype.mult = function(a) {
+        return new Vector(this.x * a, this.y * a, this.z * a);
+      };
+
+      Vector.prototype.div = function(a) {
+        return new Vector(this.x / a, this.y / a, this.z / a);
+      };
+
       return Vector;
 
     })();
@@ -175,6 +211,103 @@
       }
 
       return Renderable;
+
+    })();
+    Scene = (function() {
+
+      __extends(Scene, Renderable);
+
+      function Scene(callback) {
+        Scene.__super__.constructor.call(this);
+        this.layers = [];
+        this.gameisover = false;
+        this.engine = window.engine;
+        this.engine.setScene(this);
+        callback.apply(this);
+      }
+
+      Scene.prototype.addLayer = function(layer) {
+        return this.layers.push(layer);
+      };
+
+      Scene.prototype.update = function(delta) {
+        var layer, _i, _len, _ref, _results;
+        if (this.updateCallback) this.updateCallback(delta);
+        _ref = this.layers;
+        _results = [];
+        for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+          layer = _ref[_i];
+          if (!layer.static) layer.position = this.position;
+          _results.push(layer.update(delta));
+        }
+        return _results;
+      };
+
+      Scene.prototype.draw = function(engine) {
+        var layer, _i, _len, _ref, _results;
+        _ref = this.layers;
+        _results = [];
+        for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+          layer = _ref[_i];
+          _results.push(layer.draw(engine));
+        }
+        return _results;
+      };
+
+      Scene.prototype.registerKeyEvent = function(key, callback) {
+        return this.engine.registerKeyEvent(key, callback.bind(this));
+      };
+
+      return Scene;
+
+    })();
+    Layer = (function() {
+
+      __extends(Layer, Renderable);
+
+      function Layer() {
+        Layer.__super__.constructor.call(this);
+        this.objects = [];
+        this.static = false;
+      }
+
+      Layer.prototype.sort = function() {
+        return this.sortedObjects = _.sortBy(this.objects, function(o) {
+          return o.position.z;
+        });
+      };
+
+      Layer.prototype.update = function(delta) {
+        var o, _i, _len, _ref, _results;
+        this.sort();
+        _ref = this.sortedObjects;
+        _results = [];
+        for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+          o = _ref[_i];
+          _results.push(o.update(delta));
+        }
+        return _results;
+      };
+
+      Layer.prototype.draw = function(engine) {
+        var o, _i, _len, _ref, _results;
+        if (!this.sortedObjects) this.sort();
+        _ref = this.sortedObjects;
+        _results = [];
+        for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+          o = _ref[_i];
+          _results.push(engine.translate(this.position, this.rotate, false, false, this, function() {
+            return o.draw(engine);
+          }));
+        }
+        return _results;
+      };
+
+      Layer.prototype.add = function(object) {
+        return this.objects.push(object);
+      };
+
+      return Layer;
 
     })();
     Text = (function() {
@@ -212,8 +345,18 @@
         if (horiz === 'left') {
           this.align = 'left';
           this.center.x = 0;
+        } else if (horiz === 'center') {
+          this.align = 'center';
+          this.center.x = 0;
+        } else if (horiz === 'right') {
+          this.align = 'right';
+          this.center.x = 0;
         }
-        if (vert === 'top') return this.center.y = -this.size / 2;
+        if (vert === 'top') {
+          return this.center.y = -this.size / 2;
+        } else if (vert === 'center') {
+          return this.center.y = 0;
+        }
       };
 
       return Text;
@@ -240,7 +383,7 @@
         if (attrs) {
           this.sprites = new Vector(attrs.sprites[0], attrs.sprites[1]);
         } else {
-          this.sprites = [1, 1];
+          this.sprites = new Vector(1, 1);
         }
         this.frame = 0;
         this.setFPS(1);
@@ -259,19 +402,24 @@
       Sprite.prototype.setSize = function(w, h) {
         this.w = w / this.sprites.x;
         this.h = h / this.sprites.y;
-        this.center.x = this.w / 2 * this.scale;
-        this.center.y = this.h / 2 * this.scale;
+        if (!(this.center != null)) {
+          this.center.x = this.w / 2 * this.scale;
+          this.center.y = this.h / 2 * this.scale;
+        }
         return this.updatePos();
       };
 
       Sprite.prototype.update = function(delta) {
-        if (this.updateCallback) this.updateCallback(delta);
+        if (this.updateCallback != null) this.updateCallback(delta);
         this.nextFrame(delta);
         return this.updatePos();
       };
 
       Sprite.prototype.updatePos = function() {
-        this.src = new Rect(this.frame * this.w, 0, this.w, this.h);
+        var frameX, frameY;
+        frameX = this.frame % this.sprites.x;
+        frameY = Math.floor(this.frame / this.sprites.x);
+        this.src = new Rect(frameX * this.w, frameY * this.h, this.w, this.h);
         return this.dst = new Rect(this.position.x, this.position.y, this.w * this.scale, this.h * this.scale);
       };
 
@@ -299,15 +447,36 @@
 
       function Character() {
         Character.__super__.constructor.call(this, "character.png", {
-          sprites: [8, 1]
+          sprites: [8, 2]
         });
         this.frames = {
           'front': [0],
           'left': [1],
           'right': [1]
         };
+        this.jumpFrames = {
+          'front': [8],
+          'left': [9],
+          'right': [9]
+        };
         this.direction('front');
+        this.jumping = false;
+        this.center = new Vector(64, 102);
+        this.gravity = 0;
+        this.grounded = true;
+        this.maxgravity = 200;
+        this.gravitydecay = 150;
       }
+
+      Character.prototype.jump = function(jumping) {
+        if (jumping) {
+          if (!this.grounded) return;
+          if (!this.jumping) this.gravity += this.maxgravity;
+        }
+        if (this.gravity > this.maxgravity) this.gravity = this.maxgravity;
+        this.jumping = jumping;
+        if (this.jumping) return this.grounded = false;
+      };
 
       Character.prototype.direction = function(dir) {
         this.dir = dir;
@@ -315,10 +484,102 @@
         return this.frame = this.frames[this.dir][0];
       };
 
+      Character.prototype.updateCallback = function(delta) {
+        var h;
+        if (this.gravity <= 0) {
+          if (h = this.tiles.ground(this.position)) {
+            if (!this.grounded) {
+              this.grounded = true;
+              this.direction('front');
+              this.gravity = 0;
+              engine.scene.score = (h - 1) * 100;
+            }
+          } else {
+            this.grounded = false;
+          }
+        }
+        if (!this.grounded) {
+          this.position.y -= this.gravity * delta;
+          this.gravity -= this.gravitydecay * delta;
+          return this.frame = this.jumpFrames[this.dir][0];
+        } else {
+          return this.frame = this.frames[this.dir][0];
+        }
+      };
+
       return Character;
 
     })();
+    TilesLayer = (function() {
+
+      __extends(TilesLayer, Layer);
+
+      function TilesLayer() {
+        TilesLayer.__super__.constructor.call(this);
+        this.tileSize = 32;
+        this.rows = {};
+        this.offset = new Vector(0, 0);
+        this.initialOffset = 13;
+      }
+
+      TilesLayer.prototype.addTileRow = function(tiles) {
+        var offset, row, sprite, tile, x, y, _i, _len;
+        y = 0;
+        x = 0;
+        offset = this.offset.mult(this.tileSize);
+        row = [];
+        for (_i = 0, _len = tiles.length; _i < _len; _i++) {
+          tile = tiles[_i];
+          if (tile >= 0) {
+            sprite = this.sprite();
+            sprite.tile = tile;
+            sprite.frame = tile;
+            sprite.scale = 1;
+            sprite.position = new Vector(offset.x + x * this.tileSize, 480 - this.tileSize - (offset.y + y * this.tileSize));
+            sprite.center = new Vector(0, 0);
+            this.add(sprite);
+            row.push(sprite);
+          } else {
+            row.push(null);
+          }
+          x++;
+        }
+        this.rows[this.offset.y] = row;
+        return this.offset.y++;
+      };
+
+      TilesLayer.prototype.sprite = function() {
+        var sprite;
+        sprite = new Sprite("tiles.png", {
+          sprites: [8, 4]
+        });
+        return sprite;
+      };
+
+      TilesLayer.prototype.lastRow = function() {
+        return this.offset.y - 1;
+      };
+
+      TilesLayer.prototype.toTileCoords = function(position) {
+        var local, tile;
+        local = position.div(this.tileSize);
+        return tile = new Vector(Math.floor(local.x), Math.floor(1 - local.y) + 1 + this.initialOffset);
+      };
+
+      TilesLayer.prototype.ground = function(position) {
+        var cell, row, tile;
+        tile = this.toTileCoords(position);
+        if (row = this.rows[tile.y]) {
+          if (cell = row[tile.x]) if (cell.tile >= 0) return tile.y + 1;
+        }
+        return 0;
+      };
+
+      return TilesLayer;
+
+    })();
     window.engine = new Engine;
+    window.engine.gameisover = false;
     updateRate = 1000 / 60;
     update = function() {
       var delta;
@@ -326,43 +587,186 @@
       return window.setTimeout(update, updateRate - (delta * 1000));
     };
     window.setTimeout(update, 1);
-    character = new Character;
-    character.position = new Vector(100, 100, 10);
-    character.updateCallback = function(delta) {};
-    fps = new Text("");
-    fps.frames = 0;
-    fps.elapsed = 0;
-    fps.setAlign('left', 'top');
-    fps.updateCallback = function(delta) {
-      var rate;
-      fps.elapsed += delta;
-      this.frames++;
-      if (fps.elapsed > 1) {
-        rate = this.frames / fps.elapsed;
-        fps.elapsed -= 1;
-        this.frames = 0;
-        return this.text = rate.toFixed(0) + " FPS";
-      }
+    mainScene = function() {
+      return new Scene(function() {
+        var borderDist, fps, i, n, scene, score, sprite;
+        scene = this;
+        this.backgroundLayer = new Layer;
+        this.addLayer(this.backgroundLayer);
+        this.tilesLayer = new TilesLayer;
+        this.addLayer(this.tilesLayer);
+        this.gameLayer = new Layer;
+        this.addLayer(this.gameLayer);
+        this.foregroundLayer = new Layer;
+        this.foregroundLayer.static = true;
+        this.addLayer(this.foregroundLayer);
+        this.uiLayer = new Layer;
+        this.uiLayer.static = true;
+        this.addLayer(this.uiLayer);
+        this.score = 0;
+        this.updateCallback = function(delta) {
+          var h, row, tile;
+          this.position.y += 10 * delta;
+          h = this.character.position.y + this.position.y;
+          tile = this.tilesLayer.toTileCoords(this.position.mult(-1));
+          row = tile.y;
+          if (row > this.tilesLayer.lastRow()) {
+            this.tilesLayer.addTileRow(this.generateRow(this.tilesLayer.lastRow()));
+          }
+          if (h < 150) {
+            if (h < 0) h = 0;
+            this.position.y += (150 - h / 2) * delta;
+          }
+          if (h > 490) return this.gameover();
+        };
+        this.gameover = function() {
+          var text;
+          if (this.gameisover) return;
+          this.gameisover = true;
+          text = new Text("GAME OVER!");
+          text.setFont(100);
+          text.setAlign('center', 'center');
+          text.position = new Vector(320, 240);
+          this.uiLayer.add(text);
+          text.colors = ['#fff', '#f00', '#0f0', '#00f'];
+          text.colorIndex = 0;
+          text.updateCallback = function(delta) {
+            var index;
+            this.colorIndex += delta;
+            index = Math.floor(this.colorIndex) % this.colors.length;
+            return this.color = this.colors[index];
+          };
+          text = new Text("Press any key to retry.");
+          text.setFont(40);
+          text.setAlign('center', 'center');
+          text.position = new Vector(320, 340);
+          this.uiLayer.add(text);
+          return this.registerKeyEvent('', function(down) {
+            if (!down) return mainScene();
+          });
+        };
+        this.character = new Character;
+        this.character.tiles = this.tilesLayer;
+        this.character.position = new Vector(340, 480 - 64);
+        this.gameLayer.add(this.character);
+        for (i = 0; i <= 18; i++) {
+          sprite = this.tilesLayer.sprite();
+          sprite.frame = 24;
+          sprite.position = new Vector(i * this.tilesLayer.tileSize, 480 - 64);
+          this.foregroundLayer.add(sprite);
+        }
+        score = new Text("Score: 0");
+        score.setAlign('right', 'top');
+        score.updateCallback = function(delta) {
+          return score.text = "Score: " + scene.score;
+        };
+        score.position = new Vector(640 - 5, 0, 100);
+        this.uiLayer.add(score);
+        fps = new Text("");
+        fps.frames = 0;
+        fps.elapsed = 0;
+        fps.setAlign('left', 'top');
+        fps.updateCallback = function(delta) {
+          var rate;
+          fps.elapsed += delta;
+          this.frames++;
+          if (fps.elapsed > 1) {
+            rate = this.frames / fps.elapsed;
+            fps.elapsed -= 1;
+            this.frames = 0;
+            return this.text = rate.toFixed(0) + " FPS";
+          }
+        };
+        fps.position = new Vector(5, 0, 100);
+        this.uiLayer.add(fps);
+        this.startRow = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        this.platformSize = function(n) {
+          return 2 + Math.floor(Math.random() * 4);
+        };
+        this.hasPlatform = function(n) {
+          if (n % 4 === 1) return true;
+          return Math.floor(Math.random() * 3) === 1;
+        };
+        this.generateRow = function(n) {
+          var i, pend, ps, pstart, row;
+          if (n === 0) {
+            return (function() {
+              var _results;
+              _results = [];
+              for (i = 1; i <= 20; i++) {
+                _results.push(8);
+              }
+              return _results;
+            })();
+          }
+          if (n === 1) {
+            return (function() {
+              var _results;
+              _results = [];
+              for (i = 1; i <= 20; i++) {
+                _results.push(0);
+              }
+              return _results;
+            })();
+          }
+          if (n < 3) return [];
+          row = (function() {
+            var _results;
+            _results = [];
+            for (i = 1; i <= 20; i++) {
+              _results.push(-1);
+            }
+            return _results;
+          })();
+          if (this.hasPlatform(n)) {
+            ps = this.platformSize(n);
+            pstart = Math.floor(Math.random() * 18);
+            pend = pstart + ps;
+            if (pend >= 20) pend = 19;
+            for (i = pstart; pstart <= pend ? i <= pend : i >= pend; pstart <= pend ? i++ : i--) {
+              row[i] = 0;
+            }
+          }
+          return row;
+        };
+        n = 0;
+        for (i = 1; i <= 15; i++) {
+          this.tilesLayer.addTileRow(this.generateRow(n));
+          n++;
+        }
+        borderDist = 10;
+        this.movespeed = 200;
+        this.registerKeyEvent('D', function(down) {
+          if (down) {
+            this.character.position.x += this.movespeed * this.engine.delta;
+            if (this.character.position.x > 640 - borderDist) {
+              this.character.position.x = 640 - borderDist;
+            }
+            return this.character.direction('right');
+          }
+        });
+        this.registerKeyEvent('A', function(down) {
+          if (down) {
+            this.character.direction('left');
+            this.character.position.x -= this.movespeed * this.engine.delta;
+            if (this.character.position.x < borderDist) {
+              return this.character.position.x = borderDist;
+            }
+          }
+        });
+        return this.registerKeyEvent('W', function(down) {
+          if (down) {
+            return this.character.jump(true);
+          } else {
+            return this.character.jump(false);
+          }
+        });
+      });
     };
-    fps.position = new Vector(0, 0, 100);
-    window.engine.registerKeyEvent('D', function(down) {
-      if (down) {
-        character.position.x += 100 * window.engine.delta;
-        return character.direction('right');
-      } else {
-        return character.direction('front');
-      }
+    mainScene();
+    $("#fullscreen").click(function() {
+      return window.engine.fullscreen();
     });
-    window.engine.registerKeyEvent('A', function(down) {
-      if (down) {
-        character.direction('left');
-        return character.position.x -= 100 * window.engine.delta;
-      } else {
-        return character.direction('front');
-      }
-    });
-    window.engine.add(character);
-    window.engine.add(fps);
     $("#resolution").click(function() {
       if (window.engine.resolution > 1) {
         $(this).html("Double Size");
