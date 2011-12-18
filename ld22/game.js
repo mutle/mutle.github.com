@@ -557,7 +557,6 @@
 
       TilesLayer.prototype.removeLastRow = function() {
         var o, row, _i, _len;
-        window.console.log(this.rows.length);
         row = _.first(this.rows);
         if (row) {
           for (_i = 0, _len = row.length; _i < _len; _i++) {
@@ -565,8 +564,7 @@
             this.remove(o);
           }
           delete row;
-          this.rows = _.compact(this.rows);
-          return window.console.log(this.rows.length);
+          return this.rows = _.compact(this.rows);
         }
       };
 
