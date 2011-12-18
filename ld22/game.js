@@ -307,6 +307,10 @@
         return this.objects.push(object);
       };
 
+      Layer.prototype.remove = function(object) {
+        return this.objects = _.without(this.objects, object);
+      };
+
       return Layer;
 
     })();
@@ -394,6 +398,8 @@
         this.animating = false;
         this.flipH = false;
         this.flipV = false;
+        this.startFrame = 0;
+        this.endFrame = 0;
       }
 
       Sprite.prototype.setFPS = function(fps) {
@@ -435,7 +441,7 @@
         if (this.frameTime > this.frameRate) {
           this.frameTime -= this.frameRate;
           this.frame++;
-          if (this.frame >= this.totalFrames) return this.frame = 0;
+          if (this.frame >= this.endFrame) return this.frame = this.startFrame;
         }
       };
 
@@ -518,14 +524,14 @@
       function TilesLayer() {
         TilesLayer.__super__.constructor.call(this);
         this.tileSize = 32;
-        this.rows = {};
+        this.rows = [];
         this.offset = new Vector(0, 0);
         this.initialOffset = 13;
+        this.firstRow = 0;
       }
 
       TilesLayer.prototype.addTileRow = function(tiles) {
-        var offset, row, sprite, tile, x, y, _i, _len;
-        y = 0;
+        var offset, row, sprite, tile, x, _i, _len;
         x = 0;
         offset = this.offset.mult(this.tileSize);
         row = [];
@@ -536,7 +542,7 @@
             sprite.tile = tile;
             sprite.frame = tile;
             sprite.scale = 1;
-            sprite.position = new Vector(offset.x + x * this.tileSize, 480 - this.tileSize - (offset.y + y * this.tileSize));
+            sprite.position = new Vector(offset.x + x * this.tileSize, 480 - this.tileSize - offset.y);
             sprite.center = new Vector(0, 0);
             this.add(sprite);
             row.push(sprite);
@@ -547,6 +553,21 @@
         }
         this.rows[this.offset.y] = row;
         return this.offset.y++;
+      };
+
+      TilesLayer.prototype.removeLastRow = function() {
+        var o, row, _i, _len;
+        window.console.log(this.rows.length);
+        row = _.first(this.rows);
+        if (row) {
+          for (_i = 0, _len = row.length; _i < _len; _i++) {
+            o = row[_i];
+            this.remove(o);
+          }
+          delete row;
+          this.rows = _.compact(this.rows);
+          return window.console.log(this.rows.length);
+        }
       };
 
       TilesLayer.prototype.sprite = function() {
@@ -622,6 +643,7 @@
           row = tile.y;
           if (row > this.tilesLayer.lastRow()) {
             this.tilesLayer.addTileRow(this.generateRow(this.tilesLayer.lastRow()));
+            this.tilesLayer.removeLastRow();
           }
           if (h < 150) {
             if (h < 0) h = 0;
@@ -655,27 +677,35 @@
           text.setFont(40);
           text.setAlign('center', 'center');
           text.position = new Vector(320, 340);
-          text.colors = ['#fff', ''];
+          text.colors = ['', '#fff'];
           text.colorIndex = 0;
+          text.eventRegistered = false;
           text.updateCallback = function(delta) {
             var index;
-            this.colorIndex += delta;
+            this.colorIndex += delta / 2;
             index = Math.floor(this.colorIndex) % this.colors.length;
-            return this.color = this.colors[index];
+            this.color = this.colors[index];
+            if (index > 0 && !this.eventRegistered) {
+              this.eventRegistered = true;
+              return scene.registerKeyEvent('', function(down) {
+                if (!down) return mainScene();
+              });
+            }
           };
-          this.uiLayer.add(text);
-          return this.registerKeyEvent('', function(down) {
-            if (!down) return mainScene();
-          });
+          return this.uiLayer.add(text);
         };
         this.character = new Character;
         this.character.tiles = this.tilesLayer;
         this.character.position = new Vector(340, 480 - 64);
         this.gameLayer.add(this.character);
-        for (i = 0; i <= 18; i++) {
+        for (i = 0; i <= 9; i++) {
           sprite = this.tilesLayer.sprite();
-          sprite.frame = 24;
-          sprite.position = new Vector(i * this.tilesLayer.tileSize, 480 - 64);
+          sprite.frame = 24 + Math.floor(Math.random() * 8);
+          sprite.startFrame = 24;
+          sprite.endFrame = 31;
+          sprite.position = new Vector(i * this.tilesLayer.tileSize * 2, 480 - 64);
+          sprite.animating = true;
+          sprite.setFPS(10);
           this.foregroundLayer.add(sprite);
         }
         score = new Text("Score: 0");
@@ -711,7 +741,7 @@
           return Math.floor(Math.random() * 3) === 1;
         };
         this.generateRow = function(n) {
-          var i, pend, ps, pstart, row;
+          var i, pend, ps, pstart, row, t;
           if (n === 0) {
             return (function() {
               var _results;
@@ -727,7 +757,7 @@
               var _results;
               _results = [];
               for (i = 1; i <= 20; i++) {
-                _results.push(0);
+                _results.push(1);
               }
               return _results;
             })();
@@ -747,7 +777,10 @@
             pend = pstart + ps;
             if (pend >= 20) pend = 19;
             for (i = pstart; pstart <= pend ? i <= pend : i >= pend; pstart <= pend ? i++ : i--) {
-              row[i] = 0;
+              t = 1;
+              if (i === pstart) t = 0;
+              if (i === pend) t = 2;
+              row[i] = t;
             }
           }
           return row;
